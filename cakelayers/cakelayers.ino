@@ -1,5 +1,6 @@
 #include <FastLED.h>
 #include "CakePalettes.h"
+#include "patterns/comet.h"
  
 #define LED_PIN     10
 #define NUM_LEDS    120
@@ -91,27 +92,6 @@ void ClearLedGroup() {
     }
     FastLED.show();
 }
-
-void runPatternOnGroup(CRGB* group, int size, int direction, CRGB color) {
-  int tail = 16;
-  if (direction > 0) {
-    // Move forward
-    group[currentLED] = color;
-    for (int i = 1; i <= tail; i++) {
-      if (currentLED - i >= 0) {
-        group[currentLED - i].fadeToBlackBy(255 * i / tail);
-      }
-    }
-  } else {
-    // Move backward
-    group[size - currentLED - 1] = color;
-    for (int i = 1; i <= tail; i++) {
-      if (size - currentLED - 1 + i < size) {
-        group[size - currentLED - 1 + i].fadeToBlackBy(255 * i / tail);
-      }
-    }
-  }
-}
  
 void FillLEDsFromPaletteColors( uint8_t colorIndex)
 {
@@ -122,7 +102,6 @@ void FillLEDsFromPaletteColors( uint8_t colorIndex)
         colorIndex += 3;
     }
 }
- 
  
 // There are several different palettes of colors demonstrated here.
 //
