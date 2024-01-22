@@ -1,4 +1,5 @@
 #include <FastLED.h>
+#include "constants.h"
 #include "CakePalettes.h"
 #include "patterns/comet.h"
  
@@ -10,13 +11,7 @@
 CRGB leds[NUM_LEDS];
  
 #define UPDATES_PER_SECOND 200
- 
 #define GROUP_SIZE (NUM_LEDS / 4)
-
-int FORWARD = 1;
-int BACKWARD = -1;
-
-int currentDirection = FORWARD;
 
 CRGB group1[GROUP_SIZE];
 CRGB group2[GROUP_SIZE];
@@ -28,8 +23,6 @@ TBlendType    currentBlending;
  
 extern CRGBPalette16 myRedWhiteBluePalette;
 extern const TProgmemPalette16 myRedWhiteBluePalette_p PROGMEM;
- 
-int currentLED = 0;
  
 void setup() {
     delay( 3000 ); // power-up safety delay

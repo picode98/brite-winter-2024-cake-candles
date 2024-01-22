@@ -3,11 +3,15 @@
 
 #include <FastLED.h>
 
+extern const int GROUP_SIZE;
+
 extern CRGB group1[];
 extern CRGB group2[];
 extern CRGB group3[];
 extern CRGB group4[];
-extern int currentLED;
+
+int currentLED = 0;
+int currentDirection = FORWARD;
 
 void runPatternOnGroup(CRGB* group, int size, int direction, CRGB color, int tailSize = 16) {
     if (direction > 0) {
