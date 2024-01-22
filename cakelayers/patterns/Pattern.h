@@ -40,6 +40,9 @@ public:
             }
         }
     }
+
+    virtual void run() = 0;
+
 };
 
 #endif // PATTERN_H

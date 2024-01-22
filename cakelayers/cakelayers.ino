@@ -30,7 +30,7 @@ void setup() {
     FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
     FastLED.setBrightness(  BRIGHTNESS );
     
-    currentPalette = CloudColors_p;
+    currentPalette = RainbowColors_p;
     currentBlending = LINEARBLEND;
     MySetup();
 }
@@ -43,12 +43,21 @@ void MySetup() {
     memcpy(group4, leds + 3 * GROUP_SIZE, GROUP_SIZE * sizeof(CRGB));
 }
  
+int patternIndex = 0;
+Pattern* patterns[] = { new Monochrome(CRGB::Purple, NUM_LEDS), new Monochrome(CRGB::Yellow, NUM_LEDS) };
+
 void loop() {
-    Monochrome monochrome = Monochrome(CRGB::Blue, NUM_LEDS);
-    monochrome.run();
+    oldLoop();
+}
+
+void newLoop() {
+    patterns[patternIndex]->run();
+    FastLED.show();
+    delay(2000);
+    patternIndex = (patternIndex + 1) % 2;
 }
  
-void dep_loop()
+void oldLoop()
 {
     CRGB color = currentPalette[currentLED % 16];
     // Run your patterns on each group
