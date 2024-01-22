@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "CakePalettes.h"
 #include "patterns/comet.h"
+#include "patterns/Monochrome.h"
  
 #define LED_PIN     10
 #define NUM_LEDS    120
@@ -42,8 +43,12 @@ void MySetup() {
     memcpy(group4, leds + 3 * GROUP_SIZE, GROUP_SIZE * sizeof(CRGB));
 }
  
+void loop() {
+    Monochrome monochrome = Monochrome(CRGB::Blue, NUM_LEDS);
+    monochrome.run();
+}
  
-void loop()
+void dep_loop()
 {
     CRGB color = currentPalette[currentLED % 16];
     // Run your patterns on each group
