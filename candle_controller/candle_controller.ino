@@ -42,7 +42,7 @@ const size_t NUM_ORBITS = sizeof(ORBITS[0]) / sizeof(ORBITS[0][0]), ORBIT_SIZE =
 const size_t NUM_LEDS = 8;
 CRGB CURRENT_COLORS[NUM_LEDS];
 // size_t CURRENT_ANIMATION = 0;
-double PHASE = 0.0, FREQUENCY = 1.0;
+double PHASE = 0.0, HUE_PHASE = 0.0;
 unsigned long PREVIOUS_MILLIS;
 
 double getBrightness(double phase)
@@ -52,16 +52,18 @@ double getBrightness(double phase)
 
 void setup()
 {
-    FastLED.addLeds<NEOPIXEL, DATA_PIN>(CURRENT_COLORS, NUM_LEDS);
+    FastLED.addLeds<WS2812, DATA_PIN, EOrder::RGB>(CURRENT_COLORS, NUM_LEDS);
     PREVIOUS_MILLIS = millis();
 }
 
 void loop()
 {
-    double frequency = 1.0;
+    double frequency = 1.0, hueFrequency = 0.01;
     unsigned long newMillis = millis();
     PHASE += frequency * (newMillis - PREVIOUS_MILLIS) / 1000.0;
     PHASE -= static_cast<int>(PHASE);
+    HUE_PHASE += hueFrequency * (newMillis - PREVIOUS_MILLIS) / 1000.0;
+    HUE_PHASE -= static_cast<int>(HUE_PHASE);
     PREVIOUS_MILLIS = newMillis;
 
     size_t currentAnimation = (newMillis % 10000 >= 5000);
@@ -73,9 +75,10 @@ void loop()
             double adjustedPhase = PHASE + static_cast<double>(led) / ORBIT_SIZE;
             adjustedPhase -= static_cast<int>(adjustedPhase);
             double brightness = getBrightness(adjustedPhase);
-            CRGB color = CRGB(0x000000);
-            (orbit == 0 ? color.red : color.green) = static_cast<uint8_t>(brightness * 255);
-            CURRENT_COLORS[ORBITS[currentAnimation][orbit][led]] = color;
+            // CHSV color = CHSV(static_cast<uint8_t>((orbit == 0 ? HUE_PHASE : (1.0 - HUE_PHASE)) * 255), 255, static_cast<uint8_t>(brightness * 255));
+            // CRGB color = CRGB(0x000000);
+            // (orbit == 0 ? color.red : (currentAnimation == 0 ? color.blue : color.green)) = static_cast<uint8_t>(brightness * 255);
+            CURRENT_COLORS[ORBITS[currentAnimation][orbit][led]].setHSV(static_cast<uint8_t>((orbit == 0 ? HUE_PHASE : (1.0 - HUE_PHASE)) * 255), 255, static_cast<uint8_t>(brightness * 255));
         }
     }
     FastLED.show();
