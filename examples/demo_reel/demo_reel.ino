@@ -17,7 +17,6 @@ FASTLED_USING_NAMESPACE
 
 
 #define DATA_PIN    10
-//#define CLK_PIN   4
 #define LED_TYPE    WS2811
 #define COLOR_ORDER GRB
 #define NUM_LEDS    120
@@ -40,10 +39,20 @@ void setup() {
 
 // List of patterns to cycle through.  Each is defined as a separate function below.
 typedef void (*SimplePatternList[])();
-SimplePatternList gPatterns = { rainbow, rainbowWithGlitter, confetti, sinelon, juggle, bpm };
+// SimplePatternList gPatterns = { divideIntoFourGroups };
+// SimplePatternList gPatterns = { rainbow, rainbowWithGlitter, confetti, sinelon, juggle, bpm, fourGroupsJuggle };
+SimplePatternList gPatterns = { rainbow, rainbowWithGlitter, confetti, sinelon, juggle, bpm, backToFront, fourGroupsJuggle, twoGroupsPattern };
 
 uint8_t gCurrentPatternNumber = 0; // Index number of which pattern is current
 uint8_t gHue = 0; // rotating "base color" used by many of the patterns
+
+enum gUpdateHueModes {
+  gUpdateHueModeNone,
+  gUpdateHueModeIncrease,
+  gUpdateHueModeDecrease
+};
+
+int gUpdateHueMode = gUpdateHueModeIncrease;
   
 void loop()
 {
@@ -56,7 +65,7 @@ void loop()
   FastLED.delay(1000/FRAMES_PER_SECOND); 
 
   // do some periodic updates
-  EVERY_N_MILLISECONDS( 20 ) { gHue++; } // slowly cycle the "base color" through the rainbow
+  EVERY_N_MILLISECONDS( 20 ) { updateHue(); } // slowly cycle the "base color" through the rainbow
   EVERY_N_SECONDS( 10 ) { nextPattern(); } // change patterns periodically
 }
 
@@ -66,6 +75,14 @@ void nextPattern()
 {
   // add one to the current pattern number, and wrap around at the end
   gCurrentPatternNumber = (gCurrentPatternNumber + 1) % ARRAY_SIZE( gPatterns);
+}
+
+void updateHue() {
+  if (gUpdateHueMode == gUpdateHueModeIncrease) {
+    gHue++;
+  } else if (gUpdateHueMode == gUpdateHueModeDecrease) {
+    gHue--;
+  }
 }
 
 void rainbow() 
@@ -124,3 +141,133 @@ void juggle() {
     dothue += 32;
   }
 }
+
+void backToFront() {
+  // Fade all LEDs to black
+  fadeToBlackBy(leds, NUM_LEDS, 20);
+
+  // Define the size of each group
+  int groupSize = NUM_LEDS / 4;
+
+  // Define the colors for the dots in each group
+  uint8_t dotHues[] = {0, 64, 128, 192};
+
+  // For each group...
+  for (int group = 0; group < 4; group++) {
+    // Calculate the position of the dot within the group
+    int pos;
+
+    // Determine the direction based on the group number
+    if (group % 2 == 0) {
+        // Even group: Move forward
+        pos = beatsin16(7, 0, groupSize - 1);
+    } else {
+        // Odd group: Move backward
+        pos = groupSize - 1 - beatsin16(7, 0, groupSize - 1);
+    }
+
+    // Add the position of the group to get the position of the dot within the entire strip
+    pos += group * groupSize;
+
+    // Set the color of the dot
+    leds[pos] |= CHSV(gHue, 200, 255);
+  }
+}
+
+
+void fourGroupsJuggle() {
+  // Fade all LEDs to black
+  fadeToBlackBy(leds, NUM_LEDS, 20);
+
+  // Define the size of each group
+  int groupSize = NUM_LEDS / 4;
+
+  // Define the colors for the dots in each group
+  uint8_t dotHues[] = {0, 64, 128, 192};
+
+  // For each group...
+  for (int group = 0; group < 4; group++) {
+    // For each dot in the group...
+    for (int dot = 0; dot < 2; dot++) {
+      // Calculate the position of the dot within the group
+      int pos = beatsin16(dot + 7, 0, groupSize - 1);
+
+      // Add the position of the group to get the position of the dot within the entire strip
+      pos += group * groupSize;
+
+      // Set the color of the dot
+      leds[pos] |= CHSV(dotHues[group], 200, 255);
+    }
+  }
+}
+
+void twoGroupsPattern() {
+    // Fade all LEDs to black
+    fadeToBlackBy(leds, NUM_LEDS, 20);
+
+    // Define the size of each group
+    int groupSize = NUM_LEDS / 2;
+
+    // For each group...
+    for (int group = 0; group < 2; group++) {
+        // Calculate the position of the dot within the group
+        int pos;
+        if (group == 0) {
+            pos = beatsin16(7, 0, groupSize - 1);
+        } else {
+            pos = groupSize - 1 - beatsin16(7, 0, groupSize - 1);
+        }
+
+        // Add the position of the group to get the position of the dot within the entire strip
+        pos += group * groupSize;
+
+        // Set the color of the dot
+        leds[pos] |= CHSV(gHue, 200, 255);
+
+        // Add a glitter effect near the head of the comet
+        for (int i = 0; i < 2; i++) {
+            if (random8() < 20) {
+                int glitterPos = (pos - i + NUM_LEDS) % NUM_LEDS;  // Change here for the second group
+                uint8_t fadeValue = random8();
+                leds[glitterPos] = blend(CRGB::White, leds[glitterPos], fadeValue);
+            }
+        }
+    }
+}
+
+void divideIntoFourGroups() {
+  // Calculate the size of each group
+  int groupSize = NUM_LEDS / 4;
+
+  // Define an array to hold the colors for each group
+  CRGB groupColors[4];
+  unsigned long lastColorChangeTime = millis();
+  unsigned long colorChangeInterval = random(500, 1000);
+
+  // Assign a random solid color to each group
+  for (int group = 0; group < 4; group++) {
+    groupColors[group] = CRGB(random8(), random8(), random8());
+  }
+
+  // Loop through all LEDs
+  for (int i = 0; i < NUM_LEDS; i++) {
+    // Calculate the group index for the current LED
+    int group = i / groupSize;
+
+    // Set the color of the LED based on the current group color
+    leds[i] = groupColors[group];
+
+    // Check if it's time to change the color
+    if (millis() - lastColorChangeTime >= colorChangeInterval) {
+      // Select a random group to change to
+      int newGroup = random(4);
+
+      // Update the last color change time and color change interval
+      lastColorChangeTime = millis();
+      colorChangeInterval = random(500, 1000);
+    }
+  }
+  delay(300);
+}
+
+
