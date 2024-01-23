@@ -2,6 +2,7 @@
 /// @brief   FastLED "100 lines of code" demo reel, showing off some effects
 /// @example DemoReel100.ino
 
+#include <Keypad.h>
 #include <FastLED.h>
 
 FASTLED_USING_NAMESPACE
@@ -26,6 +27,7 @@ CRGB leds[NUM_LEDS];
 #define FRAMES_PER_SECOND  120
 
 void setup() {
+  Serial.begin(9600);
   delay(3000); // 3 second delay for recovery
   
   // tell FastLED about the LED strip configuration
@@ -35,6 +37,23 @@ void setup() {
   // set master brightness control
   FastLED.setBrightness(BRIGHTNESS);
 }
+
+const byte ROWS = 4; //four rows
+const byte COLS = 4; //four columns
+
+//define the two-dimensional array on the buttons of the keypads
+char hexaKeys[ROWS][COLS] = {
+  {'1','2','3','A'},
+  {'4','5','6','B'},
+  {'7','8','9','C'},
+  {'*','0','#','D'}
+};
+
+byte rowPins[ROWS] = {9, 8, 7, 6}; //connect to the row pinouts of the keypad
+byte colPins[COLS] = {5, 4, 3, 2}; //connect to the column pinouts of the keypad
+
+//initialize an instance of class NewKeypad
+Keypad customKeypad = Keypad( makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS); 
 
 
 // List of patterns to cycle through.  Each is defined as a separate function below.
@@ -53,6 +72,7 @@ enum gUpdateHueModes {
 };
 
 int gUpdateHueMode = gUpdateHueModeIncrease;
+char lastKeyPressed = 0;
   
 void loop()
 {
@@ -65,16 +85,64 @@ void loop()
   FastLED.delay(1000/FRAMES_PER_SECOND); 
 
   // do some periodic updates
-  EVERY_N_MILLISECONDS( 20 ) { updateHue(); } // slowly cycle the "base color" through the rainbow
+  EVERY_N_MILLISECONDS( 20 ) { 
+    updateHue();
+    readKeyPad();
+  } // slowly cycle the "base color" through the rainbow
   EVERY_N_SECONDS( 10 ) { nextPattern(); } // change patterns periodically
 }
 
 #define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
 
+void readKeyPad() {
+  char key = customKeypad.getKey();
+  if (key) {
+    lastKeyPressed = key; 
+  }
+}
+
 void nextPattern()
 {
-  // add one to the current pattern number, and wrap around at the end
-  gCurrentPatternNumber = (gCurrentPatternNumber + 1) % ARRAY_SIZE( gPatterns);
+    char key = lastKeyPressed;
+    if (key) {
+      if (key == '1') {
+        gCurrentPatternNumber = 0;
+      } else if (key == '2') {
+        gCurrentPatternNumber = 1;
+      } else if (key == '3') {
+        gCurrentPatternNumber = 2;
+      } else if (key == '4') {
+        gCurrentPatternNumber = 3;
+      } else if (key == '5') {
+        gCurrentPatternNumber = 4;
+      } else if (key == '6') {
+        gCurrentPatternNumber = 5;
+      } else if (key == '7') {
+        gCurrentPatternNumber = 6;
+      } else if (key == '8') {
+        gCurrentPatternNumber = 7;
+      } else if (key == '9') {
+        gCurrentPatternNumber = 8;
+      } else if (key == '0') {
+        gCurrentPatternNumber = 9;
+      } else if (key == '*') {
+        gUpdateHueMode = gUpdateHueModeIncrease;
+      } else if (key == '#') {
+        gUpdateHueMode = gUpdateHueModeDecrease;
+      } else if (key == 'A') {
+        gCurrentPatternNumber = 0;
+      } else if (key == 'B') {
+        gCurrentPatternNumber = 1;
+      } else if (key == 'C') {
+        gCurrentPatternNumber = 2;
+      } else if (key == 'D') {
+        gCurrentPatternNumber = 3;
+      }
+      lastKeyPressed = 0;
+    } else {
+      // add one to the current pattern number, and wrap around at the end
+      gCurrentPatternNumber = (gCurrentPatternNumber + 1) % ARRAY_SIZE( gPatterns);  
+    }
 }
 
 void updateHue() {
