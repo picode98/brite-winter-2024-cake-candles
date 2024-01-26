@@ -16,11 +16,11 @@ FASTLED_USING_NAMESPACE
 // -Mark Kriegsman, December 2014
 
 
-#define DATA_PIN    3
+#define DATA_PIN    10
 //#define CLK_PIN   4
 #define LED_TYPE    WS2811
 #define COLOR_ORDER GRB
-#define NUM_LEDS    64
+#define NUM_LEDS    120
 CRGB leds[NUM_LEDS];
 
 #define BRIGHTNESS          96
