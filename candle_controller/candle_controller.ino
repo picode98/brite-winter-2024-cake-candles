@@ -10,6 +10,8 @@
 // #include <fastled_delay.h>
 // #include <fastled_progmem.h>
 #include <FastLED.h>
+
+#include <esp_mac.h>
 // #include <fastpin.h>
 // #include <fastspi_bitbang.h>
 // #include <fastspi_dma.h>
@@ -29,56 +31,109 @@
 const int DATA_PIN = 12;
 const int ORBITS[][2][4] = {
     {
-        {2, 3, 4, 6},
-        {0, 7, 5, 1}
+        {2, 3, 4, 6}, // top
+        {0, 7, 5, 1}  // bottom
     },
     {
-        {1, 3, 4, 5},
-        {7, 0, 2, 6}
+        {1, 5, 7, 0}, // bottom
+        {6, 4, 3, 2}  // top
+    },
+    {
+        {1, 3, 4, 5}, // right
+        {7, 0, 2, 6}  // left
+    },
+    {
+        {6, 2, 0, 7}, // left
+        {5, 4, 3, 1}  // right
+    },
+    {
+        {0, 1, 4, 6},
+        {7, 5, 3, 2}
+    },
+    {
+        {2, 3, 5, 7},
+        {6, 4, 1, 0}
     }
 };
-const size_t NUM_ORBITS = sizeof(ORBITS[0]) / sizeof(ORBITS[0][0]), ORBIT_SIZE = sizeof(ORBITS[0][0]) / sizeof(ORBITS[0][0][0]);
+const size_t NUM_ANIMATIONS = sizeof(ORBITS) / sizeof(ORBITS[0]), NUM_ORBITS = sizeof(ORBITS[0]) / sizeof(ORBITS[0][0]), ORBIT_SIZE = sizeof(ORBITS[0][0]) / sizeof(ORBITS[0][0][0]);
+
+double ORBIT_FREQUENCIES[NUM_ORBITS] = {1.5, 0.1}, ORBIT_PHASES[NUM_ORBITS] = {0.0};
+double HUE_FREQUENCY = 0.01;
 
 const size_t NUM_LEDS = 8;
 CRGB CURRENT_COLORS[NUM_LEDS];
 // size_t CURRENT_ANIMATION = 0;
-double PHASE = 0.0, HUE_PHASE = 0.0;
+double HUE_PHASE = 0.0;
 unsigned long PREVIOUS_MILLIS;
 
-double getBrightness(double phase)
+double getBrightness(size_t orbit, double phase)
 {
-    return max(1.0 - 4.0 * phase, 0.0);
+    switch(orbit)
+    {
+        case 0:
+            return max(1.0 - 2.0 * phase, 0.0);
+        case 1:
+            return max((phase <= 0.6 ? 1.0 - 0.75 * phase : (1.0 - 0.75 * 0.6) - 2.0 * (phase - 0.6)), 0.0);
+        default:
+            return 1.0;
+    }
+    // return (orbit == 0 ? max(1.0 - 2.0 * phase, 0.0) : max(1.0 - 0.75 * phase, 0.0));
 }
 
 void setup()
 {
+    uint8_t macAddress[8] = {0};
+    esp_efuse_mac_get_default(macAddress);
+    unsigned long seed = 0;
+    for(size_t i = 0; i < sizeof(macAddress) / sizeof(unsigned long); ++i)
+    {
+        seed += reinterpret_cast<unsigned long*>(macAddress)[i];
+    }
+    randomSeed(seed);
+
+    for(size_t i = 0; i < NUM_ORBITS; ++i)
+    {
+        ORBIT_FREQUENCIES[i] = 2.0 * (random() / static_cast<double>(RAND_MAX)) + 0.1;
+    }
+    HUE_FREQUENCY = 0.02 * (random() / static_cast<double>(RAND_MAX)) + 0.005;
+
     FastLED.addLeds<WS2812, DATA_PIN, EOrder::RGB>(CURRENT_COLORS, NUM_LEDS);
     PREVIOUS_MILLIS = millis();
 }
 
 void loop()
 {
-    double frequency = 1.0, hueFrequency = 0.01;
     unsigned long newMillis = millis();
-    PHASE += frequency * (newMillis - PREVIOUS_MILLIS) / 1000.0;
-    PHASE -= static_cast<int>(PHASE);
-    HUE_PHASE += hueFrequency * (newMillis - PREVIOUS_MILLIS) / 1000.0;
-    HUE_PHASE -= static_cast<int>(HUE_PHASE);
+    double delta = (newMillis - PREVIOUS_MILLIS) / 1000.0;
+    for(size_t i = 0; i < NUM_ORBITS; ++i)
+    {
+        ORBIT_PHASES[i] += ORBIT_FREQUENCIES[i] * delta;
+        ORBIT_PHASES[i] -= static_cast<int>(ORBIT_PHASES[i]);
+    }
+    // PHASE_1 += frequency_1 * delta; PHASE_1 -= static_cast<int>(PHASE);
+    // PHASE_2 += frequency_2 * delta; PHASE_2 -= static_cast<int>(PHASE);
+    HUE_PHASE += HUE_FREQUENCY * delta; HUE_PHASE -= static_cast<int>(HUE_PHASE);
     PREVIOUS_MILLIS = newMillis;
 
-    size_t currentAnimation = (newMillis % 10000 >= 5000);
+    size_t currentAnimation = (newMillis % (5000 * NUM_ANIMATIONS)) / 5000;
 
     for(size_t orbit = 0; orbit < NUM_ORBITS; ++orbit)
     {
         for(size_t led = 0; led < ORBIT_SIZE; ++led)
         {
-            double adjustedPhase = PHASE + static_cast<double>(led) / ORBIT_SIZE;
+            double adjustedPhase = ORBIT_PHASES[orbit] + static_cast<double>(led) / ORBIT_SIZE, thisHuePhase = HUE_PHASE;
             adjustedPhase -= static_cast<int>(adjustedPhase);
-            double brightness = getBrightness(adjustedPhase);
+            double brightness = getBrightness(orbit, adjustedPhase);
+
+            if(orbit == 1)
+            {
+                thisHuePhase += 0.5;
+                thisHuePhase -= static_cast<int>(thisHuePhase);
+            }
             // CHSV color = CHSV(static_cast<uint8_t>((orbit == 0 ? HUE_PHASE : (1.0 - HUE_PHASE)) * 255), 255, static_cast<uint8_t>(brightness * 255));
             // CRGB color = CRGB(0x000000);
             // (orbit == 0 ? color.red : (currentAnimation == 0 ? color.blue : color.green)) = static_cast<uint8_t>(brightness * 255);
-            CURRENT_COLORS[ORBITS[currentAnimation][orbit][led]].setHSV(static_cast<uint8_t>((orbit == 0 ? HUE_PHASE : (1.0 - HUE_PHASE)) * 255), 255, static_cast<uint8_t>(brightness * 255));
+            CURRENT_COLORS[ORBITS[currentAnimation][orbit][led]].setHSV(static_cast<uint8_t>(thisHuePhase * 255), 255, static_cast<uint8_t>(brightness * 255));
         }
     }
     FastLED.show();
