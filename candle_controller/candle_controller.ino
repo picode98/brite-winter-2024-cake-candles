@@ -28,6 +28,8 @@
 // #include <platforms.h>
 // #include <power_mgt.h>
 
+const int DEPLOYED_VERSION = 1;
+
 const int DATA_PIN = 12;
 const int ORBITS[][2][4] = {
     {
@@ -85,6 +87,23 @@ double getBrightness(size_t orbit, double phase, double animTime, double animLen
 
 void setup()
 {
+    for(size_t i = 0; i < NUM_LEDS; ++i)
+    {
+        CURRENT_COLORS[i] = CRGB(0x000000);
+    }
+
+    FastLED.addLeds<WS2812, DATA_PIN, EOrder::RGB>(CURRENT_COLORS, NUM_LEDS);
+
+    for(size_t i = 0; i < DEPLOYED_VERSION; ++i)
+    {
+        CURRENT_COLORS[0] = CRGB(0xffffff);
+        FastLED.show();
+        delay(500);
+        CURRENT_COLORS[0] = CRGB(0x000000);
+        FastLED.show();
+        delay(500);
+    }
+
     uint8_t macAddress[8] = {0};
     esp_efuse_mac_get_default(macAddress);
     unsigned long seed = 0;
@@ -112,7 +131,6 @@ void setup()
         // baseTime = ANIM_END_TIMES[i];
     }
 
-    FastLED.addLeds<WS2812, DATA_PIN, EOrder::RGB>(CURRENT_COLORS, NUM_LEDS);
     PREVIOUS_MILLIS = millis();
 }
 
