@@ -28,9 +28,13 @@
 // #include <platforms.h>
 // #include <power_mgt.h>
 
-const int DEPLOYED_VERSION = 1;
+const int DEPLOYED_VERSION = 2;
 
 const int DATA_PIN = 12;
+
+// Array of "orbit" (LED chase sequence) configurations, where the indices
+// are [animation][orbit][LED] and the values are LED indices (on the physical
+// strand and in CURRENT_COLORS).
 const int ORBITS[][2][4] = {
     {
         {2, 3, 4, 6}, // top
@@ -49,11 +53,11 @@ const int ORBITS[][2][4] = {
         {5, 4, 3, 1}  // right
     },
     {
-        {0, 1, 4, 6},
+        {0, 1, 4, 6}, // diagonals
         {7, 5, 3, 2}
     },
     {
-        {2, 3, 5, 7},
+        {2, 3, 5, 7}, // diagonals (opposite direction)
         {6, 4, 1, 0}
     }
 };
@@ -75,11 +79,11 @@ double getBrightness(size_t orbit, double phase, double animTime, double animLen
 
     switch(orbit)
     {
-        case 0:
+        case 0: // Jump to full brightness, then fade quickly.
             return animTransitionTerm * max(1.0 - 2.0 * phase, 0.0);
-        case 1:
+        case 1: // Jump to full brightness, then fade slowly until phase = 0.6, then fade quickly.
             return animTransitionTerm * max((phase <= 0.6 ? 1.0 - 0.75 * phase : (1.0 - 0.75 * 0.6) - 2.0 * (phase - 0.6)), 0.0);
-        default:
+        default: // Should be unused, but just in case.
             return 1.0;
     }
     // return (orbit == 0 ? max(1.0 - 2.0 * phase, 0.0) : max(1.0 - 0.75 * phase, 0.0));
@@ -87,23 +91,35 @@ double getBrightness(size_t orbit, double phase, double animTime, double animLen
 
 void setup()
 {
+    // The built-in LED is used as a status indicator.
+    pinMode(LED_BUILTIN, OUTPUT);
     for(size_t i = 0; i < NUM_LEDS; ++i)
     {
         CURRENT_COLORS[i] = CRGB(0x000000);
     }
 
+    // The light strings we're using are NeoPixel-compatible, but seem to use
+    // a different color order (RGB) than the default (GRB).
     FastLED.addLeds<WS2812, DATA_PIN, EOrder::RGB>(CURRENT_COLORS, NUM_LEDS);
 
+    // Blink the current version on the status LED and one of the string LEDs.
+    // This is meant as an easy way to tell which version has been deployed on a
+    // controller or whether a particular controller has been updated.
     for(size_t i = 0; i < DEPLOYED_VERSION; ++i)
     {
+        digitalWrite(LED_BUILTIN, HIGH);
         CURRENT_COLORS[0] = CRGB(0xffffff);
         FastLED.show();
         delay(500);
+        digitalWrite(LED_BUILTIN, LOW);
         CURRENT_COLORS[0] = CRGB(0x000000);
         FastLED.show();
         delay(500);
     }
 
+    // Calculate a random seed using the MAC address of the built-in radio.
+    // This is meant to give each controller's effects a distinct "personality",
+    // which persists even if power cycled.
     uint8_t macAddress[8] = {0};
     esp_efuse_mac_get_default(macAddress);
     unsigned long seed = 0;
@@ -113,6 +129,7 @@ void setup()
     }
     randomSeed(seed);
 
+    // Calculate random frequencies for the individual orbits and for the hue.
     double minFrequency = -1.0;
     for(size_t i = 0; i < NUM_ORBITS; ++i)
     {
@@ -124,6 +141,8 @@ void setup()
     }
     HUE_FREQUENCY = 0.02 * (random() / static_cast<double>(RAND_MAX)) + 0.005;
 
+    // Each animation should last at least twice the period of the longest orbit, with
+    // a random amount of additional time.
     double minDuration = 2.0 / minFrequency; // , baseTime = 0.0;
     for(size_t i = 0; i < NUM_ANIMATIONS; ++i)
     {
@@ -136,6 +155,7 @@ void setup()
 
 void loop()
 {
+    // Update oscillator phases, which run from 0.0 to 1.0.
     unsigned long newMillis = millis();
     double delta = (newMillis - PREVIOUS_MILLIS) / 1000.0;
     for(size_t i = 0; i < NUM_ORBITS; ++i)
@@ -147,6 +167,8 @@ void loop()
     // PHASE_2 += frequency_2 * delta; PHASE_2 -= static_cast<int>(PHASE);
     HUE_PHASE += HUE_FREQUENCY * delta; HUE_PHASE -= static_cast<int>(HUE_PHASE);
 
+    // Update current animation elapsed time, and roll over to the next animation if this
+    // one has ended.
     CURRENT_ANIM_TIME += delta;
     while(CURRENT_ANIM_TIME >= ANIM_LENGTHS[CURRENT_ANIMATION])
     {
@@ -155,6 +177,9 @@ void loop()
     }
 
     PREVIOUS_MILLIS = newMillis;
+
+    // Display "running" status: On for 9 seconds, off for 1 second.
+    digitalWrite(LED_BUILTIN, (newMillis % 10000 <= 9000 ? HIGH : LOW));
 
     // size_t currentAnimation = (newMillis % (5000 * NUM_ANIMATIONS)) / 5000;
 
@@ -166,6 +191,7 @@ void loop()
             adjustedPhase -= static_cast<int>(adjustedPhase);
             double brightness = getBrightness(orbit, adjustedPhase, CURRENT_ANIM_TIME, ANIM_LENGTHS[CURRENT_ANIMATION]);
 
+            // Use opposite-hued colors for the two orbits.
             if(orbit == 1)
             {
                 thisHuePhase += 0.5;
@@ -174,6 +200,8 @@ void loop()
             // CHSV color = CHSV(static_cast<uint8_t>((orbit == 0 ? HUE_PHASE : (1.0 - HUE_PHASE)) * 255), 255, static_cast<uint8_t>(brightness * 255));
             // CRGB color = CRGB(0x000000);
             // (orbit == 0 ? color.red : (currentAnimation == 0 ? color.blue : color.green)) = static_cast<uint8_t>(brightness * 255);
+            
+            // Set the current LED using HSV (converted to RGB), scaling the hue phase and brightness from [0, 1] to [0, 255].
             CURRENT_COLORS[ORBITS[CURRENT_ANIMATION][orbit][led]].setHSV(static_cast<uint8_t>(thisHuePhase * 255), 255, static_cast<uint8_t>(brightness * 255));
         }
     }
