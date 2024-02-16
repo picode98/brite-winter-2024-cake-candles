@@ -62,39 +62,45 @@ struct OrbitDef
 //         (const int[]) {-1}
 // }};
 
+const int SIDE_BF = 0, SIDE_TF = 1, SIDE_BR = 2, SIDE_TR = 3,
+          SIDE_BB = 5, SIDE_TB = 4, SIDE_BL = 6, SIDE_TL = 7;
+
 OrbitDef ORBITS[] = {
     OrbitDef {10.0, 0.01, (double[]) {0.5, 1.0, -1.0}, (const int* []) {
-        (const int[]) {2, 3, 4, 6, -1}, // top
-        (const int[]) {0, 7, 5, 1, -1},  // bottom
+        (const int[]) {SIDE_TF, SIDE_TL, SIDE_TB, SIDE_TR, -1}, // top
+        (const int[]) {SIDE_BF, SIDE_BR, SIDE_BB, SIDE_BL, -1},  // bottom
         (const int[]) {-1}
     }},
     OrbitDef {10.0, 0.02, (double[]) {0.5, 1.0, -1.0}, (const int* []) {
-        (const int[]) {1, 5, 7, 0, -1}, // bottom
-        (const int[]) {6, 4, 3, 2, -1},  // top
+        (const int[]) {SIDE_TF, SIDE_TR, SIDE_TB, SIDE_TL, -1}, // bottom
+        (const int[]) {SIDE_BF, SIDE_BL, SIDE_BB, SIDE_BR, -1},  // top
         (const int[]) {-1}
     }},
     OrbitDef {10.0, 0.04, (double[]) {0.5, 1.0, -1.0}, (const int* []) {
-        (const int[]) {1, 3, 4, 5, -1}, // right
-        (const int[]) {7, 0, 2, 6, -1},  // left
+        (const int[]) {SIDE_BL, SIDE_BB, SIDE_TB, SIDE_TL, -1}, // left
+        (const int[]) {SIDE_BF, SIDE_TF, SIDE_TR, SIDE_BR, -1},  // right
         (const int[]) {-1}
     }},
     OrbitDef {10.0, 0.08, (double[]) {0.5, 1.0, -1.0}, (const int* []) {
-        (const int[]) {6, 2, 0, 7, -1}, // left
-        (const int[]) {5, 4, 3, 1, -1},  // right
+        (const int[]) {SIDE_BF, SIDE_BR, SIDE_TR, SIDE_TF, -1}, // right
+        (const int[]) {SIDE_BL, SIDE_TL, SIDE_TB, SIDE_BB, -1},  // left
         (const int[]) {-1}
     }},
     OrbitDef {10.0, 0.16, (double[]) {0.5, 1.0, -1.0}, (const int* []) {
-        (const int[]) {0, 1, 4, 6, -1}, // diagonals
-        (const int[]) {7, 5, 3, 2, -1},
+        (const int[]) {SIDE_BF, SIDE_TF, SIDE_TB, SIDE_BB, -1}, // diagonals
+        (const int[]) {SIDE_BL, SIDE_TL, SIDE_TR, SIDE_BR, -1},
         (const int[]) {-1}
     }},
     OrbitDef {10.0, 0.32, (double[]) {0.5, 1.0, -1.0}, (const int* []) {
-        (const int[]) {2, 3, 5, 7, -1}, // diagonals (opposite direction)
-        (const int[]) {6, 4, 1, 0, -1},
+        (const int[]) {SIDE_BL, SIDE_BR, SIDE_TR, SIDE_TL, -1}, // diagonals (opposite direction)
+        (const int[]) {SIDE_BF, SIDE_BB, SIDE_TB, SIDE_TF, -1},
         (const int[]) {-1}
     }},
-    OrbitDef {15000.0, 0.0, (double[]) {0.2, -1.0}, (const int* []) {
-        (const int[]) {0, 2, 3, 1, 0, 2, 3, 1, 0, 2, 6, 7, 0, 2, 6, 7, 5, 4, 6, 7, 5, 4, 6, 7, 5, 4, 3, 1, 5, 4, 3, 1, -1},
+    OrbitDef {15.0, 0.0, (double[]) {0.2, -1.0}, (const int* []) {
+        (const int[]) {SIDE_BF, SIDE_TF, SIDE_TR, SIDE_BR, SIDE_BF, SIDE_TF, SIDE_TR, SIDE_BR,
+                       SIDE_BF, SIDE_TF, SIDE_TL, SIDE_BL, SIDE_BF, SIDE_TF, SIDE_TL, SIDE_BL,
+                       SIDE_BB, SIDE_TB, SIDE_TL, SIDE_BL, SIDE_BB, SIDE_TB, SIDE_TL, SIDE_BL,
+                       SIDE_BB, SIDE_TB, SIDE_TR, SIDE_BR, SIDE_BB, SIDE_TB, SIDE_TR, SIDE_BR, -1}, // 0, 2, 3, 1, 0, 2, 3, 1, 0, 2, 6, 7, 0, 2, 6, 7, 5, 4, 6, 7, 5, 4, 6, 7, 5, 4, 3, 1, 5, 4, 3, 1, -1},
         (const int[]) {-1}
     }}
 };
@@ -163,6 +169,29 @@ void setup()
         FastLED.show();
         delay(500);
     }
+
+    CURRENT_COLORS[SIDE_TF] = CRGB(0x00ff00);
+    CURRENT_COLORS[SIDE_BF] = CRGB(0xff0000);
+    FastLED.show();
+    delay(500);
+    CURRENT_COLORS[SIDE_TF] = CURRENT_COLORS[SIDE_BF] = CRGB(0x000000);
+    CURRENT_COLORS[SIDE_TL] = CRGB(0x00ff00);
+    CURRENT_COLORS[SIDE_BL] = CRGB(0xff0000);
+    FastLED.show();
+    delay(500);
+    CURRENT_COLORS[SIDE_TL] = CURRENT_COLORS[SIDE_BL] = CRGB(0x000000);
+    CURRENT_COLORS[SIDE_TB] = CRGB(0x00ff00);
+    CURRENT_COLORS[SIDE_BB] = CRGB(0xff0000);
+    FastLED.show();
+    delay(500);
+    CURRENT_COLORS[SIDE_TB] = CURRENT_COLORS[SIDE_BB] = CRGB(0x000000);
+    CURRENT_COLORS[SIDE_TR] = CRGB(0x00ff00);
+    CURRENT_COLORS[SIDE_BR] = CRGB(0xff0000);
+    FastLED.show();
+    delay(500);
+    CURRENT_COLORS[SIDE_TR] = CURRENT_COLORS[SIDE_BR] = CRGB(0x000000);
+    FastLED.show();
+    delay(500);
 
     // Calculate a random seed using the MAC address of the built-in radio.
     // This is meant to give each controller's effects a distinct "personality",
