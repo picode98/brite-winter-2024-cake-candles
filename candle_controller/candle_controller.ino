@@ -28,7 +28,9 @@
 // #include <platforms.h>
 // #include <power_mgt.h>
 
-const int DEPLOYED_VERSION = 4;
+#define K_LAYOUT
+
+const int DEPLOYED_VERSION = 5;
 
 const int DATA_PIN = 12;
 
@@ -62,8 +64,13 @@ struct OrbitDef
 //         (const int[]) {-1}
 // }};
 
+#ifdef K_LAYOUT
 const int SIDE_BF = 0, SIDE_TF = 1, SIDE_BR = 2, SIDE_TR = 3,
           SIDE_BB = 5, SIDE_TB = 4, SIDE_BL = 6, SIDE_TL = 7;
+#else
+const int SIDE_BF = 0, SIDE_TF = 2, SIDE_BR = 7, SIDE_TR = 6,
+          SIDE_BB = 5, SIDE_TB = 4, SIDE_BL = 1, SIDE_TL = 3;
+#endif
 
 OrbitDef ORBITS[] = {
     OrbitDef {10.0, 0.01, (double[]) {0.5, 1.0, -1.0}, (const int* []) {
@@ -111,7 +118,8 @@ const size_t NUM_ANIMATIONS = sizeof(ORBITS) / sizeof(ORBITS[0]),
 double /* ORBIT_FREQUENCIES[MAX_NUM_ORBITS] = {1.5, 0.1}, */ ORBIT_PHASES[MAX_NUM_ORBITS] = {0.0};
 // double HUE_FREQUENCY = 0.01;
 double ANIM_LENGTHS[NUM_ANIMATIONS] = {0.0}, CURRENT_ANIM_TIME = 0.0;
-bool INVERT_BRIGHTNESS = false;
+bool INVERT_BRIGHTNESS = false, WHITE_PULSE = false;
+const double WHITE_PULSE_TIME = 25.0;
 
 const size_t NUM_LEDS = 8;
 CRGB CURRENT_COLORS[NUM_LEDS];
@@ -161,7 +169,11 @@ void setup()
     for(size_t i = 0; i < DEPLOYED_VERSION; ++i)
     {
         digitalWrite(LED_BUILTIN, HIGH);
+#ifdef K_LAYOUT
+        CURRENT_COLORS[0] = CRGB((i == DEPLOYED_VERSION - 1) ? 0x0000ff : 0xffffff);
+#else
         CURRENT_COLORS[0] = CRGB(0xffffff);
+#endif
         FastLED.show();
         delay(500);
         digitalWrite(LED_BUILTIN, LOW);
@@ -245,29 +257,110 @@ void loop()
     // Update oscillator phases, which run from 0.0 to 1.0.
     unsigned long newMillis = millis();
     double delta = (newMillis - PREVIOUS_MILLIS) / 1000.0;
-    for(size_t i = 0; ORBITS[CURRENT_ANIMATION].frequencies[i] > 0.0; ++i)
-    {
-        ORBIT_PHASES[i] += ORBITS[CURRENT_ANIMATION].frequencies[i] * delta;
-        // if(ORBIT_PHASES[i] >= 1.0) Serial.write('\n');
-        ORBIT_PHASES[i] -= static_cast<int>(ORBIT_PHASES[i]);
-    }
-    // PHASE_1 += frequency_1 * delta; PHASE_1 -= static_cast<int>(PHASE);
-    // PHASE_2 += frequency_2 * delta; PHASE_2 -= static_cast<int>(PHASE);
-    HUE_PHASE += ORBITS[CURRENT_ANIMATION].hueFrequency * delta; HUE_PHASE -= static_cast<int>(HUE_PHASE);
 
-    // Update current animation elapsed time, and roll over to the next animation if this
-    // one has ended.
     CURRENT_ANIM_TIME += delta;
-    while(CURRENT_ANIM_TIME >= ORBITS[CURRENT_ANIMATION].runTime)
+    if(WHITE_PULSE && CURRENT_ANIM_TIME >= WHITE_PULSE_TIME)
     {
-        CURRENT_ANIM_TIME -= ORBITS[CURRENT_ANIMATION].runTime;
-        CURRENT_ANIMATION = (CURRENT_ANIMATION + 1) % NUM_ANIMATIONS;
+        WHITE_PULSE = false;
+        CURRENT_ANIM_TIME = 0.0;
+    }
 
-        if(CURRENT_ANIMATION == 0)
+    if(WHITE_PULSE)
+    {
+        auto brightness = static_cast<uint8_t>(255.0 * (min(CURRENT_ANIM_TIME / 5.0, 1.0) * min((WHITE_PULSE_TIME - CURRENT_ANIM_TIME) / 5.0, 1.0)));
+        for(size_t i = 0; i < NUM_LEDS; ++i)
         {
-            INVERT_BRIGHTNESS = !INVERT_BRIGHTNESS;
+            CURRENT_COLORS[i] = CRGB(brightness, brightness, brightness);
         }
     }
+    else
+    {
+        for(size_t i = 0; ORBITS[CURRENT_ANIMATION].frequencies[i] > 0.0; ++i)
+        {
+            ORBIT_PHASES[i] += ORBITS[CURRENT_ANIMATION].frequencies[i] * delta;
+            // if(ORBIT_PHASES[i] >= 1.0) Serial.write('\n');
+            ORBIT_PHASES[i] -= static_cast<int>(ORBIT_PHASES[i]);
+        }
+        // PHASE_1 += frequency_1 * delta; PHASE_1 -= static_cast<int>(PHASE);
+        // PHASE_2 += frequency_2 * delta; PHASE_2 -= static_cast<int>(PHASE);
+        HUE_PHASE += ORBITS[CURRENT_ANIMATION].hueFrequency * delta; HUE_PHASE -= static_cast<int>(HUE_PHASE);
+
+        // Update current animation elapsed time, and roll over to the next animation if this
+        // one has ended.
+        while(CURRENT_ANIM_TIME >= ORBITS[CURRENT_ANIMATION].runTime)
+        {
+            if(rand() < RAND_MAX / 100)
+            {
+                WHITE_PULSE = true;
+                CURRENT_ANIM_TIME = 0.0;
+            }
+            else
+            {
+                CURRENT_ANIM_TIME -= ORBITS[CURRENT_ANIMATION].runTime;
+                CURRENT_ANIMATION = (CURRENT_ANIMATION + 1) % NUM_ANIMATIONS;
+
+                if(CURRENT_ANIMATION == 0)
+                {
+                    INVERT_BRIGHTNESS = !INVERT_BRIGHTNESS;
+                }
+            }
+        }
+
+        auto thisAnim = ORBITS[CURRENT_ANIMATION];
+        double brightnesses[NUM_LEDS] = {0.0}, hues[NUM_LEDS] = {0.0};
+        size_t thisNumOrbits = 0;
+        while(thisAnim.orbitIndices[thisNumOrbits][0] != -1) ++thisNumOrbits;
+        for(size_t orbit = 0; orbit < thisNumOrbits; ++orbit)
+        {
+            size_t thisOrbitSize = 0;
+            while(thisAnim.orbitIndices[orbit][thisOrbitSize] != -1) ++thisOrbitSize;
+
+            for(size_t ledIdx = 0; ledIdx < thisOrbitSize; ++ledIdx)
+            {
+                size_t led = thisAnim.orbitIndices[orbit][ledIdx];
+                // Serial.printf("%d ", led);
+
+                double adjustedPhase = ORBIT_PHASES[orbit] - static_cast<double>(ledIdx) / thisOrbitSize, thisHuePhase = HUE_PHASE - static_cast<double>(orbit) / thisNumOrbits;
+                adjustedPhase += static_cast<int>(adjustedPhase < 0.0);
+                thisHuePhase += static_cast<int>(thisHuePhase < 0.0);
+
+
+                hues[led] = thisHuePhase;
+                brightnesses[led] += getBrightness(orbit, adjustedPhase); // , CURRENT_ANIM_TIME, ORBITS[CURRENT_ANIMATION].runTime, INVERT_BRIGHTNESS);
+                brightnesses[led] = min(brightnesses[led], 1.0);
+                // if(brightnesses[led] >= 0.95)
+                // {
+                //     Serial.printf("%d", led);
+                // }
+
+                // if(INVERT_BRIGHTNESS)
+                // {
+                //     brightness = 1.0 - brightness;
+                // }
+
+                // Use opposite-hued colors for the two orbits.
+                // if(orbit == 1)
+                // {
+                //     thisHuePhase += 0.5;
+                //     thisHuePhase -= static_cast<int>(thisHuePhase);
+                // }
+                // CHSV color = CHSV(static_cast<uint8_t>((orbit == 0 ? HUE_PHASE : (1.0 - HUE_PHASE)) * 255), 255, static_cast<uint8_t>(brightness * 255));
+                // CRGB color = CRGB(0x000000);
+                // (orbit == 0 ? color.red : (currentAnimation == 0 ? color.blue : color.green)) = static_cast<uint8_t>(brightness * 255);
+                
+                // Set the current LED using HSV (converted to RGB), scaling the hue phase and brightness from [0, 1] to [0, 255].
+                // CURRENT_COLORS[ORBITS[CURRENT_ANIMATION][orbit][led]].setHSV(static_cast<uint8_t>(thisHuePhase * 255), 255, static_cast<uint8_t>(brightness * 255));
+            }
+        }
+
+        double animTransitionTerm = min(max((min(CURRENT_ANIM_TIME, ORBITS[CURRENT_ANIMATION].runTime - CURRENT_ANIM_TIME) - 0.25) * 4.0, 0.0), 1.0);
+        for(size_t i = 0; i < NUM_LEDS; ++i)
+        {
+            CURRENT_COLORS[i].setHSV(static_cast<uint8_t>(hues[i] * 255), 255, static_cast<uint8_t>(animTransitionTerm * (INVERT_BRIGHTNESS ? (1.0 - brightnesses[i]) : brightnesses[i]) * 255));
+            // Serial.printf("%f ", brightnesses[i]);
+        }
+    }
+
 
     PREVIOUS_MILLIS = newMillis;
 
@@ -275,59 +368,6 @@ void loop()
     digitalWrite(LED_BUILTIN, (newMillis % 10000 <= 9000 ? HIGH : LOW));
 
     // size_t currentAnimation = (newMillis % (5000 * NUM_ANIMATIONS)) / 5000;
-
-    auto thisAnim = ORBITS[CURRENT_ANIMATION];
-    double brightnesses[NUM_LEDS] = {0.0}, hues[NUM_LEDS] = {0.0};
-    size_t thisNumOrbits = 0;
-    while(thisAnim.orbitIndices[thisNumOrbits][0] != -1) ++thisNumOrbits;
-    for(size_t orbit = 0; orbit < thisNumOrbits; ++orbit)
-    {
-        size_t thisOrbitSize = 0;
-        while(thisAnim.orbitIndices[orbit][thisOrbitSize] != -1) ++thisOrbitSize;
-
-        for(size_t ledIdx = 0; ledIdx < thisOrbitSize; ++ledIdx)
-        {
-            size_t led = thisAnim.orbitIndices[orbit][ledIdx];
-            // Serial.printf("%d ", led);
-
-            double adjustedPhase = ORBIT_PHASES[orbit] - static_cast<double>(ledIdx) / thisOrbitSize, thisHuePhase = HUE_PHASE - static_cast<double>(orbit) / thisNumOrbits;
-            adjustedPhase += static_cast<int>(adjustedPhase < 0.0);
-            thisHuePhase += static_cast<int>(thisHuePhase < 0.0);
-
-            hues[led] = thisHuePhase;
-            brightnesses[led] += getBrightness(orbit, adjustedPhase); // , CURRENT_ANIM_TIME, ORBITS[CURRENT_ANIMATION].runTime, INVERT_BRIGHTNESS);
-            brightnesses[led] = min(brightnesses[led], 1.0);
-            // if(brightnesses[led] >= 0.95)
-            // {
-            //     Serial.printf("%d", led);
-            // }
-
-            // if(INVERT_BRIGHTNESS)
-            // {
-            //     brightness = 1.0 - brightness;
-            // }
-
-            // Use opposite-hued colors for the two orbits.
-            // if(orbit == 1)
-            // {
-            //     thisHuePhase += 0.5;
-            //     thisHuePhase -= static_cast<int>(thisHuePhase);
-            // }
-            // CHSV color = CHSV(static_cast<uint8_t>((orbit == 0 ? HUE_PHASE : (1.0 - HUE_PHASE)) * 255), 255, static_cast<uint8_t>(brightness * 255));
-            // CRGB color = CRGB(0x000000);
-            // (orbit == 0 ? color.red : (currentAnimation == 0 ? color.blue : color.green)) = static_cast<uint8_t>(brightness * 255);
-            
-            // Set the current LED using HSV (converted to RGB), scaling the hue phase and brightness from [0, 1] to [0, 255].
-            // CURRENT_COLORS[ORBITS[CURRENT_ANIMATION][orbit][led]].setHSV(static_cast<uint8_t>(thisHuePhase * 255), 255, static_cast<uint8_t>(brightness * 255));
-        }
-    }
-
-    double animTransitionTerm = min(max((min(CURRENT_ANIM_TIME, ORBITS[CURRENT_ANIMATION].runTime - CURRENT_ANIM_TIME) - 0.25) * 4.0, 0.0), 1.0);
-    for(size_t i = 0; i < NUM_LEDS; ++i)
-    {
-        CURRENT_COLORS[i].setHSV(static_cast<uint8_t>(hues[i] * 255), 255, static_cast<uint8_t>(animTransitionTerm * (INVERT_BRIGHTNESS ? (1.0 - brightnesses[i]) : brightnesses[i]) * 255));
-        // Serial.printf("%f ", brightnesses[i]);
-    }
     // Serial.write("\n");
 
     FastLED.show();
