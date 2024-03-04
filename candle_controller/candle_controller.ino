@@ -11,7 +11,14 @@
 // #include <fastled_progmem.h>
 #include <FastLED.h>
 
+#include <WiFi.h>
+#include <WiFiMulti.h>
+
+WiFiMulti WiFiMulti;
 #include <esp_mac.h>
+#include <esp_sntp.h>
+
+
 // #include <fastpin.h>
 // #include <fastspi_bitbang.h>
 // #include <fastspi_dma.h>
@@ -127,6 +134,9 @@ size_t CURRENT_ANIMATION = 0;
 double HUE_PHASE = 0.0;
 unsigned long PREVIOUS_MILLIS;
 
+wl_status_t PREVIOUS_WLAN_STATUS;
+bool TIME_CONFIGURED = false;
+
 double getBrightness(size_t orbit, double phase) // , double animTime, double animLength, bool invert)
 {
     // double animTransitionTerm = min(max((min(animTime, animLength - animTime) - 0.25) * 4.0, 0.0), 1.0); // Term that fades out between animations
@@ -227,6 +237,9 @@ void setup()
             ORBITS[anim].frequencies[orbit] *= (1.0 * (random() / static_cast<double>(RAND_MAX)) + 0.5);
         }
     }
+
+    PREVIOUS_WLAN_STATUS = WiFi.status();
+    WiFi.begin("SSID", "password");
 
     // Calculate random frequencies for the individual orbits and for the hue.
     // double minFrequency = -1.0;
@@ -385,6 +398,29 @@ void loop()
     // }
     // FastLED.show();
     // delay(1000);
+
+    wl_status_t wlanStatus = WiFi.status();
+    if(!TIME_CONFIGURED && PREVIOUS_WLAN_STATUS != WL_CONNECTED && wlanStatus == WL_CONNECTED)
+    {
+        Serial.println("Connected to network.");
+        configTime(-5 * 3600, 3600, "pool.ntp.org");
+    }
+    if(!TIME_CONFIGURED)
+    {
+        time_t now;
+        struct tm timeinfo;
+        time(&now);
+        localtime_r(&now, &timeinfo);
+        if(timeinfo.tm_year > (2016 - 1900))
+        {
+            Serial.println(&timeinfo, "Synchronized local time to %A, %B %d %Y %H:%M:%S");
+            WiFi.disconnect(/* wifioff = */ true, /* eraseap = */ false);
+            sntp_stop();
+            TIME_CONFIGURED = true;
+        }
+    }
+
+    PREVIOUS_WLAN_STATUS = wlanStatus;
 
     delay(10);
 }
