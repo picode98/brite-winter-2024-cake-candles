@@ -18,7 +18,6 @@ WiFiMulti WiFiMulti;
 #include <esp_mac.h>
 #include <esp_sntp.h>
 
-
 // #include <fastpin.h>
 // #include <fastspi_bitbang.h>
 // #include <fastspi_dma.h>
@@ -35,9 +34,9 @@ WiFiMulti WiFiMulti;
 // #include <platforms.h>
 // #include <power_mgt.h>
 
-#define K_LAYOUT
+// #define K_LAYOUT
 
-const int DEPLOYED_VERSION = 5;
+const int DEPLOYED_VERSION = 6;
 
 const int DATA_PIN = 12;
 
@@ -127,6 +126,7 @@ double /* ORBIT_FREQUENCIES[MAX_NUM_ORBITS] = {1.5, 0.1}, */ ORBIT_PHASES[MAX_NU
 double ANIM_LENGTHS[NUM_ANIMATIONS] = {0.0}, CURRENT_ANIM_TIME = 0.0;
 bool INVERT_BRIGHTNESS = false, WHITE_PULSE = false;
 const double WHITE_PULSE_TIME = 25.0;
+struct tm WHITE_PULSE_TIMESTAMP {};
 
 const size_t NUM_LEDS = 8;
 CRGB CURRENT_COLORS[NUM_LEDS];
@@ -156,6 +156,11 @@ double getBrightness(size_t orbit, double phase) // , double animTime, double an
 
     // return animTransitionTerm * (invert ? (1.0 - brightness) : brightness);
     // return (orbit == 0 ? max(1.0 - 2.0 * phase, 0.0) : max(1.0 - 0.75 * phase, 0.0));
+}
+
+double pulseBrightness(double phase, double fadeRate)
+{
+    return (phase < 0.0 ? 0.0 : max(1.0 - fadeRate * phase, 0.0));
 }
 
 void setup()
@@ -262,6 +267,9 @@ void setup()
     //     // baseTime = ANIM_END_TIMES[i];
     // }
 
+    // struct timeval test {1709812770, 0}; // 11:59:30 on 3/7/2024 (useful for testing clock animations)
+    // settimeofday(&test, nullptr);
+
     PREVIOUS_MILLIS = millis();
 }
 
@@ -272,18 +280,74 @@ void loop()
     double delta = (newMillis - PREVIOUS_MILLIS) / 1000.0;
 
     CURRENT_ANIM_TIME += delta;
-    if(WHITE_PULSE && CURRENT_ANIM_TIME >= WHITE_PULSE_TIME)
-    {
-        WHITE_PULSE = false;
-        CURRENT_ANIM_TIME = 0.0;
-    }
+
+    struct timespec clockTime;
+    clock_gettime(CLOCK_REALTIME, &clockTime);
+    // time_t now;
+    struct tm timeinfo;
+    // time(&now);
+    localtime_r(&clockTime.tv_sec, &timeinfo);
+    // if(WHITE_PULSE && CURRENT_ANIM_TIME >= WHITE_PULSE_TIME)
+    // {
+    //     WHITE_PULSE = false;
+    //     CURRENT_ANIM_TIME = 0.0;
+    // }
 
     if(WHITE_PULSE)
     {
-        auto brightness = static_cast<uint8_t>(255.0 * (min(CURRENT_ANIM_TIME / 5.0, 1.0) * min((WHITE_PULSE_TIME - CURRENT_ANIM_TIME) / 5.0, 1.0)));
+        // auto brightness = static_cast<uint8_t>(255.0 * (min(CURRENT_ANIM_TIME / 5.0, 1.0) * min((WHITE_PULSE_TIME - CURRENT_ANIM_TIME) / 5.0, 1.0)));
+        // for(size_t i = 0; i < NUM_LEDS; ++i)
+        // {
+        //     CURRENT_COLORS[i] = CRGB(brightness, brightness, brightness);
+        // }
+        double brightnesses[NUM_LEDS] = {0.0};
+
+        // struct tm pulseTimeinfo;
+        // localtime_r(&WHITE_PULSE_TIMESTAMP, &pulseTimeinfo);
+
+        if(WHITE_PULSE_TIMESTAMP.tm_min == 0 && CURRENT_ANIM_TIME >= 20.0)
+        {
+            double brightness = pulseBrightness(fmod(CURRENT_ANIM_TIME - 20.0, 3.0), 0.5);
+
+            for(size_t i = 0; i < NUM_LEDS; ++i) brightnesses[i] = brightness;
+        }
+        else
+        {
+            switch(WHITE_PULSE_TIMESTAMP.tm_min)
+            {
+              case 0:
+                brightnesses[SIDE_TF] += pulseBrightness(CURRENT_ANIM_TIME - 18.0, 1.0);
+                brightnesses[SIDE_TL] += pulseBrightness(CURRENT_ANIM_TIME - 17.0, 1.0);
+                brightnesses[SIDE_TB] += pulseBrightness(CURRENT_ANIM_TIME - 16.0, 1.0);
+                brightnesses[SIDE_TR] += pulseBrightness(CURRENT_ANIM_TIME - 15.0, 1.0);
+              case 45:
+                brightnesses[SIDE_TF] += pulseBrightness(CURRENT_ANIM_TIME - 10.0, 1.0);
+                brightnesses[SIDE_TL] += pulseBrightness(CURRENT_ANIM_TIME - 11.0, 1.0);
+                brightnesses[SIDE_TB] += pulseBrightness(CURRENT_ANIM_TIME - 12.0, 1.0);
+                brightnesses[SIDE_TR] += pulseBrightness(CURRENT_ANIM_TIME - 13.0, 1.0);
+              case 30:
+                brightnesses[SIDE_TF] += pulseBrightness(CURRENT_ANIM_TIME - 8.0, 1.0);
+                brightnesses[SIDE_TL] += pulseBrightness(CURRENT_ANIM_TIME - 7.0, 1.0);
+                brightnesses[SIDE_TB] += pulseBrightness(CURRENT_ANIM_TIME - 6.0, 1.0);
+                brightnesses[SIDE_TR] += pulseBrightness(CURRENT_ANIM_TIME - 5.0, 1.0);
+              case 15:
+                brightnesses[SIDE_TF] += pulseBrightness(CURRENT_ANIM_TIME, 1.0);
+                brightnesses[SIDE_TL] += pulseBrightness(CURRENT_ANIM_TIME - 1.0, 1.0);
+                brightnesses[SIDE_TB] += pulseBrightness(CURRENT_ANIM_TIME - 2.0, 1.0);
+                brightnesses[SIDE_TR] += pulseBrightness(CURRENT_ANIM_TIME - 3.0, 1.0);
+            }
+        }
+
         for(size_t i = 0; i < NUM_LEDS; ++i)
         {
+            uint8_t brightness = static_cast<uint8_t>(brightnesses[i] * 255.0);
             CURRENT_COLORS[i] = CRGB(brightness, brightness, brightness);
+        }
+
+        if((WHITE_PULSE_TIMESTAMP.tm_min != 0 && CURRENT_ANIM_TIME >= (WHITE_PULSE_TIMESTAMP.tm_min / 15) * 5.0) || (WHITE_PULSE_TIMESTAMP.tm_min == 0 && CURRENT_ANIM_TIME >= 20.0 + 3.0 * WHITE_PULSE_TIMESTAMP.tm_hour - 0.5))
+        {
+            WHITE_PULSE = false;
+            CURRENT_ANIM_TIME = 0.0;
         }
     }
     else
@@ -300,14 +364,14 @@ void loop()
 
         // Update current animation elapsed time, and roll over to the next animation if this
         // one has ended.
-        while(CURRENT_ANIM_TIME >= ORBITS[CURRENT_ANIMATION].runTime)
+        if(TIME_CONFIGURED && timeinfo.tm_min % 15 == 0 && timeinfo.tm_sec <= 5)
         {
-            if(rand() < RAND_MAX / 100)
-            {
-                WHITE_PULSE = true;
-                CURRENT_ANIM_TIME = 0.0;
-            }
-            else
+            WHITE_PULSE = true;
+            WHITE_PULSE_TIMESTAMP = timeinfo;
+        }
+        else
+        {
+            while(CURRENT_ANIM_TIME >= ORBITS[CURRENT_ANIMATION].runTime)
             {
                 CURRENT_ANIM_TIME -= ORBITS[CURRENT_ANIMATION].runTime;
                 CURRENT_ANIMATION = (CURRENT_ANIMATION + 1) % NUM_ANIMATIONS;
@@ -366,7 +430,12 @@ void loop()
             }
         }
 
+        auto minUntilClock = ((timeinfo.tm_min + 15) / 15) * 15 - timeinfo.tm_min - 1;
+        auto secUntilClock = 59 - timeinfo.tm_sec;
+        auto msecUntilClock = 60000 * minUntilClock + 1000 * secUntilClock + (1000 - (clockTime.tv_nsec % 1000000000) / 1000000);
         double animTransitionTerm = min(max((min(CURRENT_ANIM_TIME, ORBITS[CURRENT_ANIMATION].runTime - CURRENT_ANIM_TIME) - 0.25) * 4.0, 0.0), 1.0);
+        animTransitionTerm *= max(min((msecUntilClock / 1000.0 - 4.0) * 2.0, 1.0), 0.0);
+        // if(msecUntilClock % 1000 <= 20) Serial.printf("%d msec until clock.\n", msecUntilClock);
         for(size_t i = 0; i < NUM_LEDS; ++i)
         {
             CURRENT_COLORS[i].setHSV(static_cast<uint8_t>(hues[i] * 255), 255, static_cast<uint8_t>(animTransitionTerm * (INVERT_BRIGHTNESS ? (1.0 - brightnesses[i]) : brightnesses[i]) * 255));
@@ -407,10 +476,10 @@ void loop()
     }
     if(!TIME_CONFIGURED)
     {
-        time_t now;
-        struct tm timeinfo;
-        time(&now);
-        localtime_r(&now, &timeinfo);
+        // time_t now;
+        // struct tm timeinfo;
+        // time(&now);
+        // localtime_r(&now, &timeinfo);
         if(timeinfo.tm_year > (2016 - 1900))
         {
             Serial.println(&timeinfo, "Synchronized local time to %A, %B %d %Y %H:%M:%S");
