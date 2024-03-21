@@ -344,7 +344,8 @@ void loop()
             CURRENT_COLORS[i] = CRGB(brightness, brightness, brightness);
         }
 
-        if((WHITE_PULSE_TIMESTAMP.tm_min != 0 && CURRENT_ANIM_TIME >= (WHITE_PULSE_TIMESTAMP.tm_min / 15) * 5.0) || (WHITE_PULSE_TIMESTAMP.tm_min == 0 && CURRENT_ANIM_TIME >= 20.0 + 3.0 * WHITE_PULSE_TIMESTAMP.tm_hour - 0.5))
+        if((WHITE_PULSE_TIMESTAMP.tm_min != 0 && CURRENT_ANIM_TIME >= (WHITE_PULSE_TIMESTAMP.tm_min / 15) * 5.0)
+          || (WHITE_PULSE_TIMESTAMP.tm_min == 0 && CURRENT_ANIM_TIME >= 20.0 + 3.0 * ((WHITE_PULSE_TIMESTAMP.tm_hour - 1) % 12 + 1) - 0.5))
         {
             WHITE_PULSE = false;
             CURRENT_ANIM_TIME = 0.0;
@@ -364,10 +365,11 @@ void loop()
 
         // Update current animation elapsed time, and roll over to the next animation if this
         // one has ended.
-        if(TIME_CONFIGURED && timeinfo.tm_min % 15 == 0 && timeinfo.tm_sec <= 5)
+        if(TIME_CONFIGURED && timeinfo.tm_min % 15 == 0 && timeinfo.tm_sec == 0)
         {
             WHITE_PULSE = true;
             WHITE_PULSE_TIMESTAMP = timeinfo;
+            Serial.printf("%d minutes\n", timeinfo.tm_min);
         }
         else
         {
