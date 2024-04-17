@@ -9,14 +9,21 @@
 // #include <fastled_config.h>
 // #include <fastled_delay.h>
 // #include <fastled_progmem.h>
+
 #include <FastLED.h>
 
 #include <WiFi.h>
 #include <WiFiMulti.h>
+#include <WebServer.h>
 
 WiFiMulti WiFiMulti;
 #include <esp_mac.h>
 #include <esp_sntp.h>
+
+#include "index.html.h"
+#include "jquery-3.7.1.min.js.h"
+#include "spectrum.css.h"
+#include "spectrum.js.h"
 
 // #include <fastpin.h>
 // #include <fastspi_bitbang.h>
@@ -39,6 +46,8 @@ WiFiMulti WiFiMulti;
 const int DEPLOYED_VERSION = 6;
 
 const int DATA_PIN = 12;
+
+const int NUM_CANDLES = 15;
 
 // Array of "orbit" (LED chase sequence) configurations, where the indices
 // are [animation][orbit][LED] and the values are LED indices (on the physical
@@ -123,10 +132,13 @@ const size_t NUM_ANIMATIONS = sizeof(ORBITS) / sizeof(ORBITS[0]),
 
 double /* ORBIT_FREQUENCIES[MAX_NUM_ORBITS] = {1.5, 0.1}, */ ORBIT_PHASES[MAX_NUM_ORBITS] = {0.0};
 // double HUE_FREQUENCY = 0.01;
-double ANIM_LENGTHS[NUM_ANIMATIONS] = {0.0}, CURRENT_ANIM_TIME = 0.0;
-bool INVERT_BRIGHTNESS = false, WHITE_PULSE = false;
-const double WHITE_PULSE_TIME = 25.0;
+double ANIM_LENGTHS[NUM_ANIMATIONS] = {0.0}, CURRENT_ANIM_TIME = 0.0, BLINK_ANIM_TIME = 0.0;
+bool INVERT_BRIGHTNESS = false, WHITE_PULSE = false, BLINK_ANIM = false;
+const double WHITE_PULSE_TIME = 25.0, BLINK_ANIM_LENGTH = 3.0;
 struct tm WHITE_PULSE_TIMESTAMP {};
+const size_t MAX_PALETTE_COLORS = 16;
+size_t NUM_PALETTE_COLORS = 0;
+CHSV CURRENT_PALETTE_COLORS[MAX_PALETTE_COLORS];
 
 const size_t NUM_LEDS = 8;
 CRGB CURRENT_COLORS[NUM_LEDS];
@@ -136,6 +148,7 @@ unsigned long PREVIOUS_MILLIS;
 
 wl_status_t PREVIOUS_WLAN_STATUS;
 bool TIME_CONFIGURED = false;
+WebServer server(IPAddress(0, 0, 0, 0), 80);
 
 double getBrightness(size_t orbit, double phase) // , double animTime, double animLength, bool invert)
 {
@@ -165,6 +178,7 @@ double pulseBrightness(double phase, double fadeRate)
 
 void setup()
 {
+    // for(size_t i = 0; i < sizeof(JQUERY_JS); ++i) CURRENT_COLORS[i] = CRGB(JQUERY_JS[i]);
     // Serial.begin(9600);
 
     // The built-in LED is used as a status indicator.
@@ -243,8 +257,65 @@ void setup()
         }
     }
 
+    IPAddress local_IP(192, 168, 54, 201);
+    IPAddress gateway(192, 168, 54, 22);
+    IPAddress subnet(255, 255, 255, 0);
+    IPAddress dns(8, 8, 8, 8); // Google DN
+    WiFi.config(local_IP, gateway, subnet, dns);
+
     PREVIOUS_WLAN_STATUS = WiFi.status();
     WiFi.begin("SSID", "password");
+
+    server.enableCORS();
+    server.on("/", []{ index_html_render(server, NUM_CANDLES); });
+    server.on("/jquery.js", []{ jquery_js_render(server); });
+    server.on("/spectrum.css", []{ spectrum_css_render(server); });
+    server.on("/spectrum.js", []{ spectrum_js_render(server); });
+    server.on("/blink", HTTPMethod::HTTP_POST, []{
+        BLINK_ANIM = true;
+        BLINK_ANIM_TIME = 0.0;
+        server.send(200, "text/plain", "");
+    });
+    server.on("/set_color_palette", HTTPMethod::HTTP_POST, []{
+        String colorStr = server.arg("colors");
+
+        Serial.printf("Arguments: (colors: %s); ", colorStr.c_str());
+        for(size_t i = 0; i < server.args(); ++i) Serial.printf("%s: %s", server.argName(i).c_str(), server.arg(i).c_str());
+        Serial.println();
+
+        NUM_PALETTE_COLORS = 0;
+        int currentIndex = 0;
+        while(NUM_PALETTE_COLORS < MAX_PALETTE_COLORS)
+        {
+            int comma1 = colorStr.indexOf(',', currentIndex);
+            Serial.printf("comma1: %d\n", comma1);
+            if(comma1 == -1) break;
+
+            int comma2 = colorStr.indexOf(',', comma1 + 1);
+            Serial.printf("comma2: %d\n", comma2);
+            if(comma2 == -1) break;
+
+            int nextIndex = colorStr.indexOf(';', comma2 + 1);
+            Serial.printf("nextIndex: %d\n", nextIndex);
+            CURRENT_PALETTE_COLORS[NUM_PALETTE_COLORS] = CHSV(atoi(colorStr.substring(currentIndex, comma1).c_str()), atoi(colorStr.substring(comma1 + 1, comma2).c_str()),
+                                                              atoi(nextIndex == -1 ? colorStr.substring(comma2 + 1).c_str() : colorStr.substring(comma2 + 1, nextIndex).c_str()));
+            Serial.printf("Parsed color: (%d, %d, %d).\n", CURRENT_PALETTE_COLORS[NUM_PALETTE_COLORS].hue, CURRENT_PALETTE_COLORS[NUM_PALETTE_COLORS].sat, CURRENT_PALETTE_COLORS[NUM_PALETTE_COLORS].val);
+            ++NUM_PALETTE_COLORS;
+
+            if(nextIndex != -1)
+            {
+                currentIndex = nextIndex + 1;
+            }
+            else
+            {
+                break;
+            }
+        }
+        
+        Serial.printf("Palette of %d colors applied.\n", NUM_PALETTE_COLORS);
+        server.send(200, "text/plain", "");
+    });
+    server.begin();
 
     // Calculate random frequencies for the individual orbits and for the hue.
     // double minFrequency = -1.0;
@@ -293,7 +364,20 @@ void loop()
     //     CURRENT_ANIM_TIME = 0.0;
     // }
 
-    if(WHITE_PULSE)
+    if(BLINK_ANIM)
+    {
+        for(size_t i = 0; i < NUM_LEDS; ++i)
+        {
+            CURRENT_COLORS[i] = (fmod(BLINK_ANIM_TIME, 0.5) >= 0.25 ? CRGB(0x00ff00) : CRGB(0x000000));
+        }
+
+        BLINK_ANIM_TIME += delta;
+        if(BLINK_ANIM_TIME >= BLINK_ANIM_LENGTH)
+        {
+            BLINK_ANIM = false;
+        }
+    }
+    else if(WHITE_PULSE)
     {
         // auto brightness = static_cast<uint8_t>(255.0 * (min(CURRENT_ANIM_TIME / 5.0, 1.0) * min((WHITE_PULSE_TIME - CURRENT_ANIM_TIME) / 5.0, 1.0)));
         // for(size_t i = 0; i < NUM_LEDS; ++i)
@@ -386,7 +470,8 @@ void loop()
         }
 
         auto thisAnim = ORBITS[CURRENT_ANIMATION];
-        double brightnesses[NUM_LEDS] = {0.0}, hues[NUM_LEDS] = {0.0};
+        double brightnesses[NUM_LEDS] = {0.0};
+        uint8_t hues[NUM_LEDS] = {0}, saturations[NUM_LEDS] = {0};
         size_t thisNumOrbits = 0;
         while(thisAnim.orbitIndices[thisNumOrbits][0] != -1) ++thisNumOrbits;
         for(size_t orbit = 0; orbit < thisNumOrbits; ++orbit)
@@ -399,12 +484,23 @@ void loop()
                 size_t led = thisAnim.orbitIndices[orbit][ledIdx];
                 // Serial.printf("%d ", led);
 
-                double adjustedPhase = ORBIT_PHASES[orbit] - static_cast<double>(ledIdx) / thisOrbitSize, thisHuePhase = HUE_PHASE - static_cast<double>(orbit) / thisNumOrbits;
+                double adjustedPhase = ORBIT_PHASES[orbit] - static_cast<double>(ledIdx) / thisOrbitSize;
                 adjustedPhase += static_cast<int>(adjustedPhase < 0.0);
-                thisHuePhase += static_cast<int>(thisHuePhase < 0.0);
 
+                if(NUM_PALETTE_COLORS > 0)
+                {
+                    auto currColor = CURRENT_PALETTE_COLORS[(CURRENT_ANIMATION * MAX_NUM_ORBITS + orbit) % NUM_PALETTE_COLORS];
+                    hues[led] = currColor.hue;
+                    saturations[led] = currColor.sat;
+                }
+                else
+                {
+                    double thisHuePhase = HUE_PHASE - static_cast<double>(orbit) / thisNumOrbits;
+                    thisHuePhase += static_cast<int>(thisHuePhase < 0.0);
+                    hues[led] = static_cast<uint8_t>(thisHuePhase * 255.0);
+                    saturations[led] = 255;
+                }
 
-                hues[led] = thisHuePhase;
                 brightnesses[led] += getBrightness(orbit, adjustedPhase); // , CURRENT_ANIM_TIME, ORBITS[CURRENT_ANIMATION].runTime, INVERT_BRIGHTNESS);
                 brightnesses[led] = min(brightnesses[led], 1.0);
                 // if(brightnesses[led] >= 0.95)
@@ -440,13 +536,10 @@ void loop()
         // if(msecUntilClock % 1000 <= 20) Serial.printf("%d msec until clock.\n", msecUntilClock);
         for(size_t i = 0; i < NUM_LEDS; ++i)
         {
-            CURRENT_COLORS[i].setHSV(static_cast<uint8_t>(hues[i] * 255), 255, static_cast<uint8_t>(animTransitionTerm * (INVERT_BRIGHTNESS ? (1.0 - brightnesses[i]) : brightnesses[i]) * 255));
+            CURRENT_COLORS[i].setHSV(hues[i], saturations[i], static_cast<uint8_t>(animTransitionTerm * (INVERT_BRIGHTNESS ? (1.0 - brightnesses[i]) : brightnesses[i]) * 255));
             // Serial.printf("%f ", brightnesses[i]);
         }
     }
-
-
-    PREVIOUS_MILLIS = newMillis;
 
     // Display "running" status: On for 9 seconds, off for 1 second.
     digitalWrite(LED_BUILTIN, (newMillis % 10000 <= 9000 ? HIGH : LOW));
@@ -473,7 +566,7 @@ void loop()
     wl_status_t wlanStatus = WiFi.status();
     if(!TIME_CONFIGURED && PREVIOUS_WLAN_STATUS != WL_CONNECTED && wlanStatus == WL_CONNECTED)
     {
-        Serial.println("Connected to network.");
+        Serial.printf("Connected to network (address: %s, default gateway: %s).\n", WiFi.localIP().toString().c_str(), WiFi.gatewayIP().toString().c_str());
         configTime(-5 * 3600, 3600, "pool.ntp.org");
     }
     if(!TIME_CONFIGURED)
@@ -485,13 +578,16 @@ void loop()
         if(timeinfo.tm_year > (2016 - 1900))
         {
             Serial.println(&timeinfo, "Synchronized local time to %A, %B %d %Y %H:%M:%S");
-            WiFi.disconnect(/* wifioff = */ true, /* eraseap = */ false);
-            sntp_stop();
+            // WiFi.disconnect(/* wifioff = */ true, /* eraseap = */ false);
+            // sntp_stop();
             TIME_CONFIGURED = true;
         }
     }
 
+    server.handleClient();
+
     PREVIOUS_WLAN_STATUS = wlanStatus;
+    PREVIOUS_MILLIS = newMillis;
 
     delay(10);
 }
