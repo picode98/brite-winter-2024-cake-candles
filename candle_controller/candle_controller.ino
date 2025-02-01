@@ -51,7 +51,7 @@ const int DEPLOYED_VERSION = 9;
 
 const int NUM_CANDLES = 20;
 
-const char CANDLE_LETTER = 'A';
+const char CANDLE_LETTER = 'P';
 
 // Array of "orbit" (LED chase sequence) configurations, where the indices
 // are [animation][orbit][LED] and the values are LED indices (on the physical
@@ -206,6 +206,21 @@ void startBlowoutAnimation()
     Serial.println("Blowout animation started.");
 }
 
+void setSystemClock(time_t timestamp, int tzOffset)
+{
+    struct timeval timeData { timestamp, 0 };
+    struct timezone tzData { tzOffset, 0 };
+    settimeofday(&timeData, &tzData);
+
+    struct timespec clockTime;
+    clock_gettime(CLOCK_REALTIME, &clockTime);
+    // time_t now;
+    struct tm timeinfo;
+    // time(&now);
+    localtime_r(&clockTime.tv_sec, &timeinfo);
+    Serial.println(&timeinfo, "Set new local time: %A, %B %d %Y %H:%M:%S");
+}
+
 int createUDPControlSocket()
 {
     struct sockaddr_in sourceAddr;
@@ -229,6 +244,33 @@ void processControlSocketData(int socket)
 
         switch(SOCKET_DATA_BUF[0])
         {
+        case 0:
+            BLINK_ANIM = true;
+            BLINK_ANIM_TIME = 0.0;
+            break;
+        case 1:
+        {
+            if(bytesReceived < 12) return;
+            uint32_t unsignedTZOffset = *reinterpret_cast<uint32_t*>(SOCKET_DATA_BUF + 8);
+            int32_t signedTZOffset = unsignedTZOffset & 0x7fffffff;
+            if(unsignedTZOffset & 0x80000000) signedTZOffset = -signedTZOffset;
+            setSystemClock(*reinterpret_cast<uint64_t*>(SOCKET_DATA_BUF), signedTZOffset);
+            break;
+        }
+        case 2:
+        {
+            uint8_t numColors = SOCKET_DATA_BUF[1];
+            if(bytesReceived < 1 + 3 * numColors || numColors > MAX_PALETTE_COLORS) return;
+            for(uint8_t i = 0; i < numColors; ++i)
+            {
+                CURRENT_PALETTE_COLORS[i] = CHSV(SOCKET_DATA_BUF[2 + 3 * i], SOCKET_DATA_BUF[3 + 3 * i], SOCKET_DATA_BUF[4 + 3 * i]);
+                Serial.printf("Parsed color: (%d, %d, %d).\n", CURRENT_PALETTE_COLORS[i].hue, CURRENT_PALETTE_COLORS[i].sat, CURRENT_PALETTE_COLORS[i].val);
+
+            }
+            NUM_PALETTE_COLORS = numColors;
+            Serial.printf("Palette of %d colors applied.\n", NUM_PALETTE_COLORS);
+            break;
+        }
         case 3:
             startBlowoutAnimation();
             break;
@@ -409,17 +451,7 @@ void setup()
         time_t timeInt = atoi(timeStr.c_str()); // static_cast<time_t>(atoi(timeStr.substring(0, timeStr.length() - 9).c_str())) * 1000000000 + static_cast<time_t>(atoi(timeStr.substring(timeStr.length() - 9).c_str()));
         int tzOffset = atoi(tzStr.c_str());
         Serial.printf("timeInt = %d, tzOffset = %d\n", timeInt, tzOffset);
-        struct timeval timeData { timeInt, 0 };
-        struct timezone tzData { tzOffset, 0 };
-        settimeofday(&timeData, &tzData);
-
-        struct timespec clockTime;
-        clock_gettime(CLOCK_REALTIME, &clockTime);
-        // time_t now;
-        struct tm timeinfo;
-        // time(&now);
-        localtime_r(&clockTime.tv_sec, &timeinfo);
-        Serial.println(&timeinfo, "Received new local time: %A, %B %d %Y %H:%M:%S");
+        setSystemClock(timeInt, tzOffset);
         // struct timespec clockTime;
         // clock_gettime(CLOCK_REALTIME, &clockTime);
         // struct tm timeinfo;

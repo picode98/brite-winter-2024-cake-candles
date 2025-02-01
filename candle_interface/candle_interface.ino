@@ -1,9 +1,12 @@
+#include <FastLED.h>
+
 #include <WiFi.h>
 // #include <HTTPClient.h>
 #include <lwip/sockets.h>
 
 #include "config.h"
 
+const int ANALOG_READ_RESOLUTION = 10, ANALOG_READ_MAX = 1 << ANALOG_READ_RESOLUTION;
 const int BREAKBEAM_PIN = 12, FLAME_PIN = 7;
 const int NUM_CANDLES = 20;
 // const int MIC_PIN = 3;
@@ -13,8 +16,23 @@ const int NUM_CANDLES = 20;
 const unsigned long CANDLE_BLOWOUT_LENGTH = 8000;
 bool FLAME_STATE = true;
 
+size_t ACTIVE_COLOR_BUTTON = 0;
+const size_t NUM_COLOR_BUTTONS = 5, PALETTE_SIZE = 3;
+const int COLOR_BUTTON_PINS[NUM_COLOR_BUTTONS] = {37, 35, 33, 18, 16}; // , 18, 33, 35};
 
-unsigned long CANDLE_BLOWOUT_TIMESTAMP = 0;
+// const uint8_t* BUTTON_COMMANDS[NUM_COLOR_BUTTONS] = {(const uint8_t[]) {2, 3, 0x00, 0xff, 0xff, 0x08, 0xff, 0xff, 0x16, 0xff, 0xff},
+//                                                      (const uint8_t[]) {2, 3, 0x90, 0xff, 0xff, 0x28, 0xff, 0xff, 0x15, 0xff, 0xff},
+//                                                      (const uint8_t[]) {2, 2, 0x33, 0xff, 0xff, 0x33, 0xb0, 0xff},
+//                                                      (const uint8_t[]) {2, 1, 0x00, 0x00, 0xff},
+//                                                      (const uint8_t[]) {2, 1, 0x66, 0xff, 0xff}
+//                                                      };
+
+const CHSV BUTTON_COLORS[NUM_COLOR_BUTTONS] = {CHSV {0x00, 0xff, 0xff}, CHSV {0x15, 0xff, 0xff}, CHSV {0x29, 0xff, 0xff},
+                                               CHSV {0x52, 0xff, 0xff}, CHSV {0xc6, 0xff, 0xff}};
+CHSV CURRENT_COLORS[PALETTE_SIZE];
+size_t PALETTE_SET_INDEX = 0;
+
+unsigned long CANDLE_BLOWOUT_TIMESTAMP = 0, SET_COLOR_TIMESTAMP = 0, BUTTON_DEBOUNCE_TIMESTAMPS[NUM_COLOR_BUTTONS] = {0};
 
 wl_status_t PREVIOUS_WLAN_STATUS;
 bool IP_CONFIGURING = false;
@@ -37,11 +55,33 @@ int createUDPControlSocket()
     return newSocket;
 }
 
+int sendBroadcast(const uint8_t* payload, size_t payloadSize)
+{
+    struct sockaddr_in destAddr;
+    destAddr.sin_addr.s_addr = htonl(IPADDR_BROADCAST);
+    destAddr.sin_family = AF_INET;
+    destAddr.sin_port = htons(81);
+
+    return sendto(CONTROL_SOCKET_REF, payload, payloadSize, 0, reinterpret_cast<struct sockaddr*>(&destAddr), sizeof(destAddr));
+}
+
 void setup() {
     delay(5000);
 
+    analogReadResolution(ANALOG_READ_RESOLUTION);
     pinMode(BREAKBEAM_PIN, INPUT);
     pinMode(FLAME_PIN, OUTPUT);
+
+    for(size_t i = 0; i < NUM_COLOR_BUTTONS; ++i)
+    {
+        pinMode(COLOR_BUTTON_PINS[i], INPUT_PULLUP);
+    }
+
+    for(size_t i = 0; i < PALETTE_SIZE; ++i)
+    {
+        CURRENT_COLORS[i] = BUTTON_COLORS[0];
+    }
+
     digitalWrite(FLAME_PIN, !FLAME_STATE);
     Serial.begin(115200);
 
@@ -84,15 +124,9 @@ void loop() {
             FLAME_STATE = false;
             digitalWrite(FLAME_PIN, !FLAME_STATE);
 
-            IPAddress address = WiFi.localIP();
-
-            struct sockaddr_in destAddr;
-            destAddr.sin_addr.s_addr = htonl(IPADDR_BROADCAST);
-            destAddr.sin_family = AF_INET;
-            destAddr.sin_port = htons(81);
-
-            const uint8_t payload[] = { 3 };
-            auto bytesSent = sendto(CONTROL_SOCKET_REF, payload, sizeof(payload), 0, reinterpret_cast<struct sockaddr*>(&destAddr), sizeof(destAddr));
+            // IPAddress address = WiFi.localIP();
+            uint8_t payload[] = { 3 };
+            int bytesSent = sendBroadcast(payload, sizeof(payload));
             Serial.printf("Sent %d bytes\n", bytesSent);
             // for(size_t i = 0; i < NUM_CANDLES; ++i)
             // {
@@ -104,12 +138,39 @@ void loop() {
             //     REQUEST_CLIENT.POST("");
             // }
 
-            Serial.println("Requests completed.");
+            // Serial.println("Requests completed.");
         }
         else if(!FLAME_STATE)
         {
             FLAME_STATE = true;
             digitalWrite(FLAME_PIN, !FLAME_STATE);
+        }
+    }
+
+
+    if(currTime - SET_COLOR_TIMESTAMP >= 100)
+    {   
+        for(size_t i = 0; i < NUM_COLOR_BUTTONS; ++i)
+        {
+            if(!digitalRead(COLOR_BUTTON_PINS[i]) && (ACTIVE_COLOR_BUTTON != i || currTime - SET_COLOR_TIMESTAMP >= 800))
+            {
+                Serial.printf("Sending command for button %d...\n", i);
+                CURRENT_COLORS[PALETTE_SET_INDEX] = BUTTON_COLORS[i];
+                PALETTE_SET_INDEX = (PALETTE_SET_INDEX + 1) % PALETTE_SIZE;
+
+                uint8_t cmdBuf[2 + 3 * PALETTE_SIZE] = {2, PALETTE_SIZE, 0};
+                for(size_t color = 0; color < PALETTE_SIZE; ++color)
+                {
+                    cmdBuf[2 + 3 * color] = CURRENT_COLORS[color].hue;
+                    cmdBuf[3 + 3 * color] = CURRENT_COLORS[color].sat;
+                    cmdBuf[4 + 3 * color] = CURRENT_COLORS[color].val;
+                }
+
+                int bytesSent = sendBroadcast(cmdBuf, sizeof(cmdBuf));
+                Serial.printf("Sent command for button %d (%d bytes sent).\n", i, bytesSent);
+                ACTIVE_COLOR_BUTTON = i;
+                SET_COLOR_TIMESTAMP = currTime;
+            }
         }
     }
 
